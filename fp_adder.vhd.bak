@@ -1,0 +1,482 @@
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity fp_adder is
+    port (
+        GClock       : in  std_logic;
+        GReset       : in  std_logic;
+        
+        SignA        : in  std_logic;
+        MantissaA    : in  std_logic_vector(7 downto 0);
+        ExponentA    : in  std_logic_vector(6 downto 0);
+        
+        SignB        : in  std_logic;
+        MantissaB    : in  std_logic_vector(7 downto 0);
+        ExponentB    : in  std_logic_vector(6 downto 0);
+        
+        SignOut      : out std_logic;
+        MantissaOut  : out std_logic_vector(7 downto 0);
+        ExponentOut  : out std_logic_vector(6 downto 0);
+        Overflow     : out std_logic
+    );
+end entity fp_adder;
+
+architecture structural of fp_adder is
+    
+    component comparator_7bit is
+        port (
+            A       : in  std_logic_vector(6 downto 0);
+            B       : in  std_logic_vector(6 downto 0);
+            A_GT_B  : out std_logic;
+            A_LT_B  : out std_logic;
+            A_EQ_B  : out std_logic
+        );
+    end component;
+    
+    component adder_7bit is
+        port (
+            term_a      : in  std_logic_vector(6 downto 0);
+            term_b      : in  std_logic_vector(6 downto 0);
+            carry_in    : in  std_logic;
+            sum_out     : out std_logic_vector(6 downto 0);
+            carry_out   : out std_logic
+        );
+    end component;
+    
+    component shifter_9bit is
+        port (
+            data_in     : in  std_logic_vector(8 downto 0);
+            shift_amt   : in  std_logic_vector(2 downto 0);
+            data_out    : out std_logic_vector(8 downto 0)
+        );
+    end component;
+    
+    component mux_2to1_9bit is
+        port (
+            data_in_0    : in  std_logic_vector(8 downto 0);
+            data_in_1    : in  std_logic_vector(8 downto 0);
+            sel_line     : in  std_logic;
+            data_out     : out std_logic_vector(8 downto 0)
+        );
+    end component;
+    
+    component mux_2to1_7bit is
+        port (
+            data_in_0    : in  std_logic_vector(6 downto 0);
+            data_in_1    : in  std_logic_vector(6 downto 0);
+            sel_line     : in  std_logic;
+            data_out     : out std_logic_vector(6 downto 0)
+        );
+    end component;
+    
+    component mux_2to1_8bit is
+        port (
+            data_in_0    : in  std_logic_vector(7 downto 0);
+            data_in_1    : in  std_logic_vector(7 downto 0);
+            sel_line     : in  std_logic;
+            data_out     : out std_logic_vector(7 downto 0)
+        );
+    end component;
+    
+    component mux_2to1_1bit is
+        port (
+            data_in_0    : in  std_logic;
+            data_in_1    : in  std_logic;
+            sel_line     : in  std_logic;
+            data_out     : out std_logic
+        );
+    end component;
+    
+    component adder_9bit is
+        port (
+            term_a      : in  std_logic_vector(8 downto 0);
+            term_b      : in  std_logic_vector(8 downto 0);
+            carry_in    : in  std_logic;
+            sum_out     : out std_logic_vector(8 downto 0);
+            carry_out   : out std_logic
+        );
+    end component;
+    
+    component leading_zero_detector is
+        port (
+            data_in     : in  std_logic_vector(17 downto 0);
+            zero_count  : out std_logic_vector(4 downto 0);
+            all_zeros   : out std_logic
+        );
+    end component;
+    
+    component shifter_18bit is
+        port (
+            data_in     : in  std_logic_vector(17 downto 0);
+            shift_amt   : in  std_logic_vector(3 downto 0);
+            direction   : in  std_logic;
+            data_out    : out std_logic_vector(17 downto 0)
+        );
+    end component;
+    
+    component full_adder_8bit is
+        port (
+            term_a    : in  std_logic_vector(7 downto 0);
+            term_b    : in  std_logic_vector(7 downto 0);
+            carry_in  : in  std_logic;
+            sum_out   : out std_logic_vector(7 downto 0);
+            carry_out : out std_logic
+        );
+    end component;
+    
+    signal exp_a_gt_b : std_logic;
+    signal exp_a_lt_b : std_logic;
+    signal exp_a_eq_b : std_logic;
+    
+    signal exp_b_inv : std_logic_vector(6 downto 0);
+    signal exp_a_inv : std_logic_vector(6 downto 0);
+    signal exp_diff : std_logic_vector(6 downto 0);
+    signal exp_diff_carry : std_logic;
+    signal exp_diff_ba : std_logic_vector(6 downto 0);
+    signal exp_diff_ba_carry : std_logic;
+    signal exp_diff_selected : std_logic_vector(6 downto 0);
+    signal exp_diff_3bit : std_logic_vector(2 downto 0);
+    signal saturate : std_logic;
+    signal shift_amt_a : std_logic_vector(2 downto 0);
+    signal shift_amt_b : std_logic_vector(2 downto 0);
+    
+    signal mantissa_a_full : std_logic_vector(8 downto 0);
+    signal mantissa_b_full : std_logic_vector(8 downto 0);
+    signal mantissa_a_shifted : std_logic_vector(8 downto 0);
+    signal mantissa_b_shifted : std_logic_vector(8 downto 0);
+    signal mantissa_a_aligned : std_logic_vector(8 downto 0);
+    signal mantissa_b_aligned : std_logic_vector(8 downto 0);
+    
+    signal exp_larger : std_logic_vector(6 downto 0);
+    
+    signal do_subtract : std_logic;
+    signal mantissa_b_inv : std_logic_vector(8 downto 0);
+    signal mantissa_b_operand : std_logic_vector(8 downto 0);
+    signal mantissa_sum : std_logic_vector(8 downto 0);
+    signal mantissa_sum_carry : std_logic;
+    
+    signal sum_negative : std_logic;
+    signal mantissa_sum_inv : std_logic_vector(8 downto 0);
+    signal mantissa_sum_pos : std_logic_vector(8 downto 0);
+    signal mantissa_abs : std_logic_vector(8 downto 0);
+    signal mantissa_abs_carry : std_logic;
+    
+    signal sign_same : std_logic;
+    signal sign_result : std_logic;
+    
+    signal carry_case : std_logic;
+    signal mantissa_extended : std_logic_vector(17 downto 0);
+    signal mantissa_carry_ext : std_logic_vector(17 downto 0);
+    signal mantissa_for_norm : std_logic_vector(17 downto 0);
+    
+    signal mantissa_shifted_right : std_logic_vector(17 downto 0);
+    signal mantissa_shifted_left : std_logic_vector(17 downto 0);
+    
+    signal zero_count : std_logic_vector(4 downto 0);
+    signal all_zeros_flag : std_logic;
+    signal shift_amt_4bit : std_logic_vector(3 downto 0);
+    signal shift_saturate : std_logic;
+    
+    signal normalized_mantissa : std_logic_vector(7 downto 0);
+    signal normalized_mantissa_carry : std_logic_vector(7 downto 0);
+    signal final_mantissa : std_logic_vector(7 downto 0);
+    
+    signal exp_larger_ext : std_logic_vector(7 downto 0);
+    signal shift_amt_ext : std_logic_vector(7 downto 0);
+    signal exp_dec_temp : std_logic_vector(7 downto 0);
+    signal exp_dec_carry : std_logic;
+    signal exp_inc_temp : std_logic_vector(6 downto 0);
+    signal exp_inc_carry : std_logic;
+    signal exp_after_norm : std_logic_vector(6 downto 0);
+    signal final_exponent : std_logic_vector(6 downto 0);
+    
+    signal overflow_flag : std_logic;
+    signal underflow_flag : std_logic;
+    
+    signal sign_calc : std_logic;
+    signal mantissa_calc : std_logic_vector(7 downto 0);
+    signal exponent_calc : std_logic_vector(6 downto 0);
+    signal overflow_calc : std_logic;
+    
+    signal sign_reg : std_logic;
+    signal mantissa_reg : std_logic_vector(7 downto 0);
+    signal exponent_reg : std_logic_vector(6 downto 0);
+    signal overflow_reg : std_logic;
+    
+begin
+    
+    exp_comp: comparator_7bit
+        port map (
+            A => ExponentA,
+            B => ExponentB,
+            A_GT_B => exp_a_gt_b,
+            A_LT_B => exp_a_lt_b,
+            A_EQ_B => exp_a_eq_b
+        );
+    
+    exp_b_inv <= not ExponentB;
+    exp_a_inv <= not ExponentA;
+    
+    exp_diff_calc_ab: adder_7bit
+        port map (
+            term_a => ExponentA,
+            term_b => exp_b_inv,
+            carry_in => '1',
+            sum_out => exp_diff,
+            carry_out => exp_diff_carry
+        );
+    
+    exp_diff_calc_ba: adder_7bit
+        port map (
+            term_a => ExponentB,
+            term_b => exp_a_inv,
+            carry_in => '1',
+            sum_out => exp_diff_ba,
+            carry_out => exp_diff_ba_carry
+        );
+    
+    exp_diff_mux: mux_2to1_7bit
+        port map (
+            data_in_0 => exp_diff,
+            data_in_1 => exp_diff_ba,
+            sel_line => exp_a_lt_b,
+            data_out => exp_diff_selected
+        );
+    
+    exp_mux: mux_2to1_7bit
+        port map (
+            data_in_0 => ExponentB,
+            data_in_1 => ExponentA,
+            sel_line => exp_a_gt_b,
+            data_out => exp_larger
+        );
+    
+    mantissa_a_full <= '1' & MantissaA;
+    mantissa_b_full <= '1' & MantissaB;
+    
+    saturate <= exp_diff_selected(6) or exp_diff_selected(5) or exp_diff_selected(4) or exp_diff_selected(3);
+    
+    exp_diff_3bit(0) <= saturate or exp_diff_selected(0);
+    exp_diff_3bit(1) <= saturate or exp_diff_selected(1);
+    exp_diff_3bit(2) <= saturate or exp_diff_selected(2);
+
+    shift_amt_a(0) <= exp_a_lt_b and exp_diff_3bit(0);
+    shift_amt_a(1) <= exp_a_lt_b and exp_diff_3bit(1);
+    shift_amt_a(2) <= exp_a_lt_b and exp_diff_3bit(2);
+    
+    shift_amt_b(0) <= exp_a_gt_b and exp_diff_3bit(0);
+    shift_amt_b(1) <= exp_a_gt_b and exp_diff_3bit(1);
+    shift_amt_b(2) <= exp_a_gt_b and exp_diff_3bit(2);
+    
+    shifter_a: shifter_9bit
+        port map (
+            data_in => mantissa_a_full,
+            shift_amt => shift_amt_a,
+            data_out => mantissa_a_shifted
+        );
+    
+    shifter_b: shifter_9bit
+        port map (
+            data_in => mantissa_b_full,
+            shift_amt => shift_amt_b,
+            data_out => mantissa_b_shifted
+        );
+    
+    mantissa_a_mux: mux_2to1_9bit
+        port map (
+            data_in_0 => mantissa_a_full,
+            data_in_1 => mantissa_a_shifted,
+            sel_line => exp_a_lt_b,
+            data_out => mantissa_a_aligned
+        );
+    
+    mantissa_b_mux: mux_2to1_9bit
+        port map (
+            data_in_0 => mantissa_b_shifted,
+            data_in_1 => mantissa_b_full,
+            sel_line => exp_a_lt_b,
+            data_out => mantissa_b_aligned
+        );
+    
+    do_subtract <= SignA xor SignB;
+    
+    mantissa_b_inv <= not mantissa_b_aligned;
+    
+    mantissa_b_op_mux: mux_2to1_9bit
+        port map (
+            data_in_0 => mantissa_b_aligned,
+            data_in_1 => mantissa_b_inv,
+            sel_line => do_subtract,
+            data_out => mantissa_b_operand
+        );
+    
+    mantissa_adder: adder_9bit
+        port map (
+            term_a => mantissa_a_aligned,
+            term_b => mantissa_b_operand,
+            carry_in => do_subtract,
+            sum_out => mantissa_sum,
+            carry_out => mantissa_sum_carry
+        );
+    
+    sum_negative <= do_subtract and (not mantissa_sum_carry);
+    
+    mantissa_sum_inv <= not mantissa_sum;
+    
+    mantissa_neg_mux: mux_2to1_9bit
+        port map (
+            data_in_0 => mantissa_sum,
+            data_in_1 => mantissa_sum_inv,
+            sel_line => sum_negative,
+            data_out => mantissa_sum_pos
+        );
+    
+    abs_adder: adder_9bit
+        port map (
+            term_a => mantissa_sum_pos,
+            term_b => (others => '0'),
+            carry_in => sum_negative,
+            sum_out => mantissa_abs,
+            carry_out => mantissa_abs_carry
+        );
+    
+    sign_same <= not (SignA xor SignB);
+    
+    sign_mux: mux_2to1_1bit
+        port map (
+            data_in_0 => SignB,
+            data_in_1 => SignA,
+            sel_line => mantissa_sum_carry,
+            data_out => sign_result
+        );
+    
+    carry_case <= sign_same and mantissa_sum_carry;
+    
+    mantissa_extended <= mantissa_abs & "000000000";
+    mantissa_carry_ext <= '1' & mantissa_abs & "00000000";
+    
+    mantissa_ext_mux: for i in 17 downto 0 generate
+        mux_bit: mux_2to1_1bit
+            port map (
+                data_in_0 => mantissa_extended(i),
+                data_in_1 => mantissa_carry_ext(i),
+                sel_line => carry_case,
+                data_out => mantissa_for_norm(i)
+            );
+    end generate;
+    
+    right_shifter: shifter_18bit
+        port map (
+            data_in => mantissa_for_norm,
+            shift_amt => "0001",
+            direction => '0',
+            data_out => mantissa_shifted_right
+        );
+    
+    lzd: leading_zero_detector
+        port map (
+            data_in => mantissa_for_norm,
+            zero_count => zero_count,
+            all_zeros => all_zeros_flag
+        );
+    
+    shift_saturate <= zero_count(4);
+    shift_amt_4bit(0) <= (not shift_saturate and zero_count(0)) or shift_saturate;
+    shift_amt_4bit(1) <= (not shift_saturate and zero_count(1)) or shift_saturate;
+    shift_amt_4bit(2) <= (not shift_saturate and zero_count(2)) or shift_saturate;
+    shift_amt_4bit(3) <= (not shift_saturate and zero_count(3)) or shift_saturate;
+    
+    left_shifter: shifter_18bit
+        port map (
+            data_in => mantissa_for_norm,
+            shift_amt => shift_amt_4bit,
+            direction => '1',
+            data_out => mantissa_shifted_left
+        );
+    
+    normalized_mantissa <= mantissa_shifted_left(16 downto 9);
+    normalized_mantissa_carry <= mantissa_shifted_right(15 downto 8);
+    
+    mantissa_final_mux: mux_2to1_8bit
+        port map (
+            data_in_0 => normalized_mantissa,
+            data_in_1 => normalized_mantissa_carry,
+            sel_line => carry_case,
+            data_out => final_mantissa
+        );
+    
+    exp_larger_ext <= '0' & exp_larger;
+    shift_amt_ext <= "000" & zero_count(4 downto 0);
+    
+    exp_dec: full_adder_8bit
+        port map (
+            term_a => exp_larger_ext,
+            term_b => not shift_amt_ext,
+            carry_in => '1',
+            sum_out => exp_dec_temp,
+            carry_out => exp_dec_carry
+        );
+    
+    exp_inc: adder_7bit
+        port map (
+            term_a => exp_larger,
+            term_b => "0000001",
+            carry_in => '0',
+            sum_out => exp_inc_temp,
+            carry_out => exp_inc_carry
+        );
+    
+    exp_norm_mux: mux_2to1_7bit
+        port map (
+            data_in_0 => exp_dec_temp(6 downto 0),
+            data_in_1 => exp_inc_temp,
+            sel_line => carry_case,
+            data_out => exp_after_norm
+        );
+    
+    underflow_flag <= (not carry_case) and (not exp_dec_carry);
+    overflow_flag <= (carry_case and exp_inc_carry) or 
+                     (exp_after_norm(6) and exp_after_norm(5) and exp_after_norm(4) and 
+                      exp_after_norm(3) and exp_after_norm(2) and exp_after_norm(1) and exp_after_norm(0));
+    
+    final_exponent(0) <= exp_after_norm(0) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(1) <= exp_after_norm(1) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(2) <= exp_after_norm(2) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(3) <= exp_after_norm(3) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(4) <= exp_after_norm(4) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(5) <= exp_after_norm(5) and (not underflow_flag) and (not all_zeros_flag);
+    final_exponent(6) <= exp_after_norm(6) and (not underflow_flag) and (not all_zeros_flag);
+    
+    sign_mux_final: mux_2to1_1bit
+        port map (
+            data_in_0 => sign_result,
+            data_in_1 => SignA,
+            sel_line => sign_same,
+            data_out => sign_calc
+        );
+    
+    mantissa_calc <= final_mantissa;
+    exponent_calc <= final_exponent;
+    overflow_calc <= overflow_flag and (not all_zeros_flag);
+    
+    process(GClock, GReset)
+    begin
+        if GReset = '1' then
+            sign_reg <= '0';
+            mantissa_reg <= (others => '0');
+            exponent_reg <= (others => '0');
+            overflow_reg <= '0';
+        elsif rising_edge(GClock) then
+            sign_reg <= sign_calc;
+            mantissa_reg <= mantissa_calc;
+            exponent_reg <= exponent_calc;
+            overflow_reg <= overflow_calc;
+        end if;
+    end process;
+    
+    SignOut <= sign_reg;
+    MantissaOut <= mantissa_reg;
+    ExponentOut <= exponent_reg;
+    Overflow <= overflow_reg;
+    
+end architecture structural;

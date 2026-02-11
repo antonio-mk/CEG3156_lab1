@@ -1,0 +1,150 @@
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity fp_multiplier is
+    port (
+        GClock       : in  std_logic;
+        GReset       : in  std_logic;
+        
+        SignA        : in  std_logic;
+        MantissaA    : in  std_logic_vector(7 downto 0);
+        ExponentA    : in  std_logic_vector(6 downto 0);
+        
+        SignB        : in  std_logic;
+        MantissaB    : in  std_logic_vector(7 downto 0);
+        ExponentB    : in  std_logic_vector(6 downto 0);
+        
+        SignOut      : out std_logic;
+        MantissaOut  : out std_logic_vector(7 downto 0);
+        ExponentOut  : out std_logic_vector(6 downto 0);
+        Overflow     : out std_logic
+    );
+end entity fp_multiplier;
+
+architecture structural of fp_multiplier is
+    
+    component multiplier_9bit is
+        port (
+            multiplicand : in  std_logic_vector(8 downto 0);
+            multiplier   : in  std_logic_vector(8 downto 0);
+            product      : out std_logic_vector(17 downto 0)
+        );
+    end component;
+    
+    component full_adder_8bit is
+        port (
+            term_a    : in  std_logic_vector(7 downto 0);
+            term_b    : in  std_logic_vector(7 downto 0);
+            carry_in  : in  std_logic;
+            sum_out   : out std_logic_vector(7 downto 0);
+            carry_out : out std_logic
+        );
+    end component;
+    
+    signal mantissa_a_full : std_logic_vector(8 downto 0);
+    signal mantissa_b_full : std_logic_vector(8 downto 0);
+    signal product_full    : std_logic_vector(17 downto 0);
+    
+    signal exp_a_ext       : std_logic_vector(7 downto 0);
+    signal exp_b_ext       : std_logic_vector(7 downto 0);
+    signal exp_sum         : std_logic_vector(7 downto 0);
+    signal exp_sum_carry   : std_logic;
+    signal bias            : std_logic_vector(7 downto 0);
+    signal exp_result      : std_logic_vector(7 downto 0);
+    signal exp_result_carry: std_logic;
+    
+    signal normalized_mantissa : std_logic_vector(7 downto 0);
+    signal exp_adjusted        : std_logic_vector(6 downto 0);
+    signal overflow_flag       : std_logic;
+    
+    signal sign_calc     : std_logic;
+    signal mantissa_calc : std_logic_vector(7 downto 0);
+    signal exponent_calc : std_logic_vector(6 downto 0);
+    signal overflow_calc : std_logic;
+    
+    signal sign_reg     : std_logic;
+    signal mantissa_reg : std_logic_vector(7 downto 0);
+    signal exponent_reg : std_logic_vector(6 downto 0);
+    signal overflow_reg : std_logic;
+
+begin
+
+    sign_calc <= SignA xor SignB;
+    
+    mantissa_a_full <= '1' & MantissaA;
+    mantissa_b_full <= '1' & MantissaB;
+    
+    mult_unit: multiplier_9bit
+        port map (
+            multiplicand => mantissa_a_full,
+            multiplier   => mantissa_b_full,
+            product      => product_full
+        );
+    
+    exp_a_ext <= '0' & ExponentA;
+    exp_b_ext <= '0' & ExponentB;
+    
+    exp_adder1: full_adder_8bit
+        port map (
+            term_a    => exp_a_ext,
+            term_b    => exp_b_ext,
+            carry_in  => '0',
+            sum_out   => exp_sum,
+            carry_out => exp_sum_carry
+        );
+    
+    bias <= "11000001";
+    
+    exp_adder2: full_adder_8bit
+        port map (
+            term_a    => exp_sum,
+            term_b    => bias,
+            carry_in  => '0',
+            sum_out   => exp_result,
+            carry_out => exp_result_carry
+        );
+    
+    process(product_full, exp_result)
+    begin
+        if product_full(17) = '1' then
+            normalized_mantissa <= product_full(16 downto 9);
+            exp_adjusted(0) <= not exp_result(0);
+            exp_adjusted(1) <= exp_result(1) xor exp_result(0);
+            exp_adjusted(2) <= exp_result(2) xor (exp_result(1) and exp_result(0));
+            exp_adjusted(3) <= exp_result(3) xor (exp_result(2) and exp_result(1) and exp_result(0));
+            exp_adjusted(4) <= exp_result(4) xor (exp_result(3) and exp_result(2) and exp_result(1) and exp_result(0));
+            exp_adjusted(5) <= exp_result(5) xor (exp_result(4) and exp_result(3) and exp_result(2) and exp_result(1) and exp_result(0));
+            exp_adjusted(6) <= exp_result(6) xor (exp_result(5) and exp_result(4) and exp_result(3) and exp_result(2) and exp_result(1) and exp_result(0));
+            overflow_flag <= exp_result(7) or (exp_result(6) and exp_result(5) and exp_result(4) and exp_result(3) and exp_result(2) and exp_result(1) and exp_result(0));
+        else
+            normalized_mantissa <= product_full(15 downto 8);
+            exp_adjusted <= exp_result(6 downto 0);
+            overflow_flag <= exp_result(7);
+        end if;
+    end process;
+    
+    mantissa_calc <= normalized_mantissa;
+    exponent_calc <= exp_adjusted;
+    overflow_calc <= overflow_flag;
+    
+    process(GClock, GReset)
+    begin
+        if GReset = '1' then
+            sign_reg     <= '0';
+            mantissa_reg <= (others => '0');
+            exponent_reg <= (others => '0');
+            overflow_reg <= '0';
+        elsif rising_edge(GClock) then
+            sign_reg     <= sign_calc;
+            mantissa_reg <= mantissa_calc;
+            exponent_reg <= exponent_calc;
+            overflow_reg <= overflow_calc;
+        end if;
+    end process;
+    
+    SignOut     <= sign_reg;
+    MantissaOut <= mantissa_reg;
+    ExponentOut <= exponent_reg;
+    Overflow    <= overflow_reg;
+
+end architecture structural;

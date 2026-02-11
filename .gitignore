@@ -1,0 +1,73 @@
+# Quartus Prime 生成的文件和目录
+db/
+output_files/
+simulation/
+incremental_db/
+*.rpt
+*.summary
+*.done
+*.jdi
+*.pin
+*.qws
+*.qarlog
+*.qarlog.bak
+
+# Quartus 编译输出文件
+*.sof
+*.pof
+*.rbf
+*.jic
+*.hex
+*.ttf
+*.rpd
+*.sopcinfo
+*.stp
+*.sdc
+
+# Quartus 临时文件
+*.bak
+*.tmp
+*.log
+*.lck
+*.qmsg
+*.qws
+*.qarlog
+
+# 仿真文件
+*.vst
+*.vho
+*.vht
+*.vhd.bak
+*.vhd~
+modelsim.ini
+vsim.wlf
+work/
+
+# 压缩文件（通常不需要版本控制）
+*.7z
+*.zip
+*.rar
+*.tar.gz
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE 特定文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 调试和日志文件
+*.log
+debug.log
+.cursor/
+
+# 项目特定生成目录
+CEG3156_Lab1/
+ASM设计指南.md
+ceg3156Lab1_中文翻译.md
+项目计划.md
