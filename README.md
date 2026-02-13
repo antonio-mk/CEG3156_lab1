@@ -1,10 +1,10 @@
 # Floating Point Adder Design
 
 ## ASM Diagram
-![FP Adder ASM](images/fp_adder_asm.png)
+![FP Adder ASM](asm/fp_adder_asm.png)
 
 ## Datapath Diagram
-![FP Adder Datapath](images/fp_adder_datapath.png)
+![FP Adder Datapath](asm/fp_adder_datapath.png)
 
 ## Detailed ASM Diagram
-![FP Adder Detailed ASM](images/fp_adder_detailed_asm.png)
+![FP Adder Detailed ASM](asm/fp_adder_detailed_asm.png)
